@@ -7,6 +7,8 @@ import { config } from '../../config';
 import { UserRole, Database } from '../../types/database.types';
 import { AppError } from '../../middleware/error.middleware';
 import logger from '../../utils/logger';
+import { CompanyService } from '../companies/companies.service';
+import { SubscriptionService } from '../subscriptions/subscriptions.service';
 
 // Type helpers for Supabase queries
 type UserRow = Database['public']['Tables']['users']['Row'];
@@ -17,6 +19,7 @@ export interface RegisterData {
   email: string;
   password: string;
   fullName: string;
+  companyName: string;
   role?: UserRole;
 }
 
@@ -34,6 +37,16 @@ export interface AuthResponse {
     avatarUrl: string | null;
   };
   token: string;
+  companyId?: string;
+  companies?: Array<{
+    id: string;
+    name: string;
+    role: string;
+  }>;
+  currentCompany?: {
+    id: string;
+    name: string;
+  };
 }
 
 // Response when 2FA is required (Stop and ask for code)
@@ -86,7 +99,19 @@ export class AuthService {
          user = manualUser;
       }
 
-      const token = this.generateToken(user.id, user.email, user.role);
+      // Create company for the user
+      const company = await CompanyService.createCompany({
+        name: data.companyName,
+        userId: user.id,
+      });
+
+      // Create default subscription (free plan with 30-day trial)
+      await SubscriptionService.createDefaultSubscription(company.id);
+
+      // Get user's companies
+      const companies = await CompanyService.getUserCompanies(user.id);
+
+      const token = this.generateToken(user.id, user.email, user.role, company.id);
 
       return {
         user: {
@@ -97,6 +122,16 @@ export class AuthService {
           avatarUrl: user.avatar_url,
         },
         token,
+        companyId: company.id,
+        companies: companies.map((c) => ({
+          id: c.id,
+          name: c.name,
+          role: c.role,
+        })),
+        currentCompany: {
+          id: company.id,
+          name: company.name,
+        },
       };
     } catch (error) {
       if (error instanceof AppError) throw error;
@@ -134,7 +169,17 @@ export class AuthService {
       }
 
       // No 2FA? Return Token.
-      const token = this.generateToken(user.id, user.email, user.role);
+      // Get user's companies and default company
+      const companies = await CompanyService.getUserCompanies(user.id);
+      const defaultCompany = companies.length > 0 ? companies[0] : null;
+      
+      const token = this.generateToken(
+        user.id, 
+        user.email, 
+        user.role, 
+        defaultCompany?.id
+      );
+      
       return {
         user: {
           id: user.id,
@@ -144,6 +189,16 @@ export class AuthService {
           avatarUrl: user.avatar_url,
         },
         token,
+        companyId: defaultCompany?.id,
+        companies: companies.map((c) => ({
+          id: c.id,
+          name: c.name,
+          role: c.role,
+        })),
+        currentCompany: defaultCompany ? {
+          id: defaultCompany.id,
+          name: defaultCompany.name,
+        } : undefined,
       };
     } catch (error) {
       if (error instanceof AppError) throw error;
@@ -152,7 +207,7 @@ export class AuthService {
   }
 
   // 3. GOOGLE LOGIN (Handles Signup & Login)
-  async loginWithGoogle(accessToken: string): Promise<AuthResponse | TwoFactorResponse> {
+  async loginWithGoogle(accessToken: string, companyName?: string): Promise<AuthResponse | TwoFactorResponse> {
     try {
       const { data: userData, error: tokenError } = await supabaseAdmin.auth.getUser(accessToken);
       if (tokenError || !userData.user) throw new AppError('Invalid Google token', 401);
@@ -185,6 +240,14 @@ export class AuthService {
 
         if (createError) throw new AppError('Failed to sync Google user', 500);
         user = createdUser;
+
+        // Create default company for new Google signups
+        if (companyName) {
+          await CompanyService.createCompany({
+            name: companyName,
+            userId: user.id,
+          });
+        }
       }
 
       if (!user.is_active) throw new AppError('Account is inactive', 403);
@@ -194,7 +257,17 @@ export class AuthService {
         return { require2fa: true, email: user.email };
       }
 
-      const token = this.generateToken(user.id, user.email, user.role);
+      // Get user's companies and default company
+      const companies = await CompanyService.getUserCompanies(user.id);
+      const defaultCompany = companies.length > 0 ? companies[0] : null;
+      
+      const token = this.generateToken(
+        user.id, 
+        user.email, 
+        user.role, 
+        defaultCompany?.id
+      );
+      
       return {
         user: {
           id: user.id,
@@ -204,6 +277,16 @@ export class AuthService {
           avatarUrl: user.avatar_url,
         },
         token,
+        companyId: defaultCompany?.id,
+        companies: companies.map((c) => ({
+          id: c.id,
+          name: c.name,
+          role: c.role,
+        })),
+        currentCompany: defaultCompany ? {
+          id: defaultCompany.id,
+          name: defaultCompany.name,
+        } : undefined,
       };
     } catch (error) {
       if (error instanceof AppError) throw error;
@@ -230,7 +313,17 @@ export class AuthService {
 
     if (!verified) throw new AppError('Invalid 2FA code', 401);
 
-    const jwtToken = this.generateToken(user.id, user.email, user.role);
+    // Get user's companies and default company
+    const companies = await CompanyService.getUserCompanies(user.id);
+    const defaultCompany = companies.length > 0 ? companies[0] : null;
+    
+    const jwtToken = this.generateToken(
+      user.id, 
+      user.email, 
+      user.role, 
+      defaultCompany?.id
+    );
+    
     return {
       user: {
         id: user.id,
@@ -240,6 +333,16 @@ export class AuthService {
         avatarUrl: user.avatar_url,
       },
       token: jwtToken,
+      companyId: defaultCompany?.id,
+      companies: companies.map((c) => ({
+        id: c.id,
+        name: c.name,
+        role: c.role,
+      })),
+      currentCompany: defaultCompany ? {
+        id: defaultCompany.id,
+        name: defaultCompany.name,
+      } : undefined,
     };
   }
 
@@ -316,15 +419,18 @@ export class AuthService {
   }
 
   // PRIVATE: Generate JWT
-  private generateToken(userId: string, email: string, role: UserRole): string {
-    const payload = { sub: userId, email, role };
+  private generateToken(userId: string, email: string, role: UserRole, companyId?: string): string {
+    const payload: any = { sub: userId, email, role };
+    if (companyId) {
+      payload.companyId = companyId;
+    }
     const secret = String(config.jwt.secret);
     return jwt.sign(payload, secret, { expiresIn: config.jwt.expiresIn as any });
   }
-  async loginWithGitHub(accessToken: string): Promise<AuthResponse | TwoFactorResponse> {
+  async loginWithGitHub(accessToken: string, companyName?: string): Promise<AuthResponse | TwoFactorResponse> {
     // Exact same logic as Google, just verifying a GitHub token
     // Supabase handles the provider difference internally if you use getUser()
-    return this.loginWithGoogle(accessToken); 
+    return this.loginWithGoogle(accessToken, companyName); 
   }
 
   // NEW: Forgot Password (Sends email)

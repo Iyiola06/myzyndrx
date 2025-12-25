@@ -21,7 +21,13 @@ export const getTasks = async (req: Request, res: Response, next: NextFunction) 
 export const createTask = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
-    const task = await TaskService.createTask(req.body, userId);
+    const companyId = req.user!.companyId || req.companyId;
+    
+    if (!companyId) {
+      return ResponseHandler.error(res, 'Company context required', 400);
+    }
+
+    const task = await TaskService.createTask(req.body, userId, companyId);
     return ResponseHandler.created(res, task);
   } catch (error) {
     next(error);

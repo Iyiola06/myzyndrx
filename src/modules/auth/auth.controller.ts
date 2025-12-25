@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import { OAuthService } from './oauth.service';
 import { ResponseHandler } from '../../utils/response';
 import { asyncHandler } from '../../middleware/error.middleware';
+import { config } from '../../config';
 import logger from '../../utils/logger';
 
 const authService = new AuthService();
@@ -45,12 +47,72 @@ export class AuthController {
     return ResponseHandler.success(res, result, 'Login successful');
   });
 
-  // POST /api/v1/auth/google
-  googleLogin = asyncHandler(async (req: Request, res: Response) => {
-    const { accessToken } = req.body;
-    logger.info('Google login attempt');
+  /**
+   * GET /api/v1/auth/google
+   * Initiates Google OAuth flow - redirects to Google
+   */
+  initiateGoogleAuth = asyncHandler(async (req: Request, res: Response) => {
+    const { companyName } = req.query;
+    const redirectUri = `${config.server.isProduction ? 'https' : 'http'}://${req.get('host')}/api/v1/auth/google/callback`;
+    
+    // Store companyName in state for callback
+    const state = companyName ? Buffer.from(companyName).toString('base64') : undefined;
+    
+    const authUrl = OAuthService.getGoogleAuthUrl(redirectUri, state);
+    
+    logger.info('Initiating Google OAuth', { redirectUri });
+    res.redirect(authUrl);
+  });
 
-    const result = await authService.loginWithGoogle(accessToken);
+  /**
+   * GET /api/v1/auth/google/callback
+   * Google OAuth callback - handles the redirect from Google
+   */
+  googleCallback = asyncHandler(async (req: Request, res: Response) => {
+    const { code, error, state } = req.query;
+
+    if (error) {
+      logger.error('Google OAuth error', { error });
+      return res.redirect(`${config.frontend.url}/auth/error?error=${encodeURIComponent(error as string)}`);
+    }
+
+    if (!code) {
+      return res.redirect(`${config.frontend.url}/auth/error?error=no_code`);
+    }
+
+    try {
+      const redirectUri = `${config.server.isProduction ? 'https' : 'http'}://${req.get('host')}/api/v1/auth/google/callback`;
+      const companyName = state ? Buffer.from(state as string, 'base64').toString() : undefined;
+
+      const result = await OAuthService.handleGoogleCallback(code as string, redirectUri, companyName);
+
+      if (result.require2fa) {
+        // Redirect to 2FA page with email
+        return res.redirect(
+          `${config.frontend.url}/auth/2fa?email=${encodeURIComponent(result.user.email)}`
+        );
+      }
+
+      // Redirect to frontend with token
+      const tokenParam = encodeURIComponent(result.token);
+      return res.redirect(`${config.frontend.url}/auth/callback?token=${tokenParam}&provider=google`);
+    } catch (error: any) {
+      logger.error('Google OAuth callback error', { error });
+      return res.redirect(
+        `${config.frontend.url}/auth/error?error=${encodeURIComponent(error.message || 'oauth_failed')}`
+      );
+    }
+  });
+
+  /**
+   * POST /api/v1/auth/google
+   * Legacy endpoint - accepts accessToken directly (for backward compatibility)
+   */
+  googleLogin = asyncHandler(async (req: Request, res: Response) => {
+    const { accessToken, companyName } = req.body;
+    logger.info('Google login attempt (direct token)');
+
+    const result = await authService.loginWithGoogle(accessToken, companyName);
 
     if ('require2fa' in result) {
       return ResponseHandler.success(res, result, '2FA verification required. Please enter your code.');
@@ -63,13 +125,72 @@ export class AuthController {
   /* NEW METHODS FOR UI (GitHub, Forgot Password, Reset Password)               */
   /* -------------------------------------------------------------------------- */
 
-  // POST /api/v1/auth/github
-  githubLogin = asyncHandler(async (req: Request, res: Response) => {
-    const { accessToken } = req.body;
-    logger.info('GitHub login attempt');
+  /**
+   * GET /api/v1/auth/github
+   * Initiates GitHub OAuth flow - redirects to GitHub
+   */
+  initiateGitHubAuth = asyncHandler(async (req: Request, res: Response) => {
+    const { companyName } = req.query;
+    const redirectUri = `${config.server.isProduction ? 'https' : 'http'}://${req.get('host')}/api/v1/auth/github/callback`;
+    
+    // Store companyName in state for callback
+    const state = companyName ? Buffer.from(companyName).toString('base64') : undefined;
+    
+    const authUrl = OAuthService.getGitHubAuthUrl(redirectUri, state);
+    
+    logger.info('Initiating GitHub OAuth', { redirectUri });
+    res.redirect(authUrl);
+  });
 
-    // Assumes you added loginWithGitHub to AuthService
-    const result = await authService.loginWithGitHub(accessToken);
+  /**
+   * GET /api/v1/auth/github/callback
+   * GitHub OAuth callback - handles the redirect from GitHub
+   */
+  githubCallback = asyncHandler(async (req: Request, res: Response) => {
+    const { code, error, state } = req.query;
+
+    if (error) {
+      logger.error('GitHub OAuth error', { error });
+      return res.redirect(`${config.frontend.url}/auth/error?error=${encodeURIComponent(error as string)}`);
+    }
+
+    if (!code) {
+      return res.redirect(`${config.frontend.url}/auth/error?error=no_code`);
+    }
+
+    try {
+      const redirectUri = `${config.server.isProduction ? 'https' : 'http'}://${req.get('host')}/api/v1/auth/github/callback`;
+      const companyName = state ? Buffer.from(state as string, 'base64').toString() : undefined;
+
+      const result = await OAuthService.handleGitHubCallback(code as string, redirectUri, companyName);
+
+      if (result.require2fa) {
+        // Redirect to 2FA page with email
+        return res.redirect(
+          `${config.frontend.url}/auth/2fa?email=${encodeURIComponent(result.user.email)}`
+        );
+      }
+
+      // Redirect to frontend with token
+      const tokenParam = encodeURIComponent(result.token);
+      return res.redirect(`${config.frontend.url}/auth/callback?token=${tokenParam}&provider=github`);
+    } catch (error: any) {
+      logger.error('GitHub OAuth callback error', { error });
+      return res.redirect(
+        `${config.frontend.url}/auth/error?error=${encodeURIComponent(error.message || 'oauth_failed')}`
+      );
+    }
+  });
+
+  /**
+   * POST /api/v1/auth/github
+   * Legacy endpoint - accepts accessToken directly (for backward compatibility)
+   */
+  githubLogin = asyncHandler(async (req: Request, res: Response) => {
+    const { accessToken, companyName } = req.body;
+    logger.info('GitHub login attempt (direct token)');
+
+    const result = await authService.loginWithGitHub(accessToken, companyName);
 
     if ('require2fa' in result) {
       return ResponseHandler.success(res, result, '2FA verification required. Please enter your code.');

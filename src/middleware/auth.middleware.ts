@@ -12,6 +12,7 @@ interface JwtPayload {
   sub: string; // user ID
   email: string;
   role: UserRole;
+  companyId?: string; // Current active company/workspace
 }
 
 /**
@@ -37,6 +38,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       id: decoded.sub,
       email: decoded.email,
       role: decoded.role,
+      companyId: decoded.companyId,
     };
 
     next();

@@ -17,6 +17,9 @@ import notifRoutes from './modules/notifications/notifications.routes';
 import docRoutes from './modules/documents/documents.routes';
 import analyticsRoutes from './modules/analytics/analytics.routes';
 import teamRoutes from './modules/teams/teams.routes';
+import companyRoutes from './modules/companies/companies.routes';
+import subscriptionRoutes from './modules/subscriptions/subscriptions.routes';
+import plansRoutes from './modules/subscriptions/subscriptions.public.routes';
 
 class App {
   public app: Application;
@@ -41,6 +44,9 @@ class App {
         allowedHeaders: ['Content-Type', 'Authorization', 'x-github-event', 'x-hub-signature-256'], // Added GitHub headers
       })
     );
+
+    // Trust proxy for correct redirect URLs in production
+    this.app.set('trust proxy', true);
 
     // Body parsing middleware
     this.app.use(express.json({ limit: '10mb' }));
@@ -78,6 +84,7 @@ class App {
 
     // API routes
     this.app.use(`${apiPrefix}/auth`, authRoutes);
+    this.app.use(`${apiPrefix}/companies`, companyRoutes);
     this.app.use(`${apiPrefix}/projects`, projectRoutes);
     this.app.use(`${apiPrefix}/prds`, prdRoutes);
     this.app.use(`${apiPrefix}/tasks`, taskRoutes);
@@ -86,6 +93,8 @@ class App {
     this.app.use(`${apiPrefix}/documents`, docRoutes);
     this.app.use(`${apiPrefix}/analytics`, analyticsRoutes);
     this.app.use(`${apiPrefix}/teams`, teamRoutes);
+    this.app.use(`${apiPrefix}/subscription`, subscriptionRoutes);
+    this.app.use(`${apiPrefix}/plans`, plansRoutes); // Plans endpoint (public)
 
     // Welcome route (API Directory)
     this.app.get('/', (req, res) => {

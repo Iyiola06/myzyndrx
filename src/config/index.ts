@@ -29,6 +29,15 @@ const envSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_PRIVATE_KEY: z.string().optional(),
+  GITHUB_CLIENT_ID: z.string().optional(),
+  GITHUB_CLIENT_SECRET: z.string().optional(),
+
+  // Google OAuth
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  
+  // Frontend redirect URL (for OAuth callbacks)
+  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
  
   // Email
   RESEND_API_KEY: z.string().optional(),
@@ -84,6 +93,15 @@ export const config = {
     webhookSecret: env.GITHUB_WEBHOOK_SECRET,
     appId: env.GITHUB_APP_ID,
     privateKey: env.GITHUB_PRIVATE_KEY,
+    clientId: env.GITHUB_CLIENT_ID,
+    clientSecret: env.GITHUB_CLIENT_SECRET,
+  },
+  google: {
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+  },
+  frontend: {
+    url: env.FRONTEND_URL,
   },
   email: {
     resendApiKey: env.RESEND_API_KEY,

@@ -11,6 +11,7 @@ export const registerSchema = z.object({
       .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
       .regex(/[0-9]/, 'Password must contain at least one number'),
     fullName: z.string().min(2, 'Full name must be at least 2 characters'),
+    companyName: z.string().min(1, 'Company name is required').max(100, 'Company name too long'),
     role: z.enum(['admin', 'product_manager', 'developer', 'qa', 'devops', 'designer']).optional(),
   }),
 });
@@ -33,7 +34,9 @@ export const updateProfileSchema = z.object({
 
 export const googleLoginSchema = z.object({
   body: z.object({
-    accessToken: z.string().min(1, 'Access token is required'),
+    accessToken: z.string().min(1, 'Access token is required').optional(),
+    code: z.string().optional(), // For code exchange flow
+    redirect_uri: z.string().url().optional(), // For code exchange flow
   }),
 });
 // Verify the code to Enable 2FA

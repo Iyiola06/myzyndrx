@@ -1,7 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import supabase from '../../config/supabase';
 import { Database } from '../../types/database.types';
-import { PRICING_LIMITS, PlanType } from '../../config/pricing';
+import { SubscriptionService } from '../subscriptions/subscriptions.service';
 
 const db = supabase as SupabaseClient<Database>;
 
@@ -22,28 +22,20 @@ export class TaskService {
     return data;
   }
 
-  static async createTask(data: any, userId: string) {
-    const { data: project } = await db.from('projects').select('owner_id').eq('id', data.project_id).single();
+  static async createTask(data: any, userId: string, companyId: string) {
+    const { data: project } = await db.from('projects').select('company_id').eq('id', data.project_id).single();
     if (!project) throw new Error('Project not found');
 
-    // FIX: Cast 'project' to 'any' to access 'owner_id'
-    const ownerId = (project as any).owner_id;
+    // Ensure company_id matches
+    const projectCompanyId = (project as any).company_id;
+    if (projectCompanyId !== companyId) {
+      throw new Error('Project does not belong to your company');
+    }
 
-    const { data: userData } = await db.from('users').select('plan').eq('id', ownerId).single();
-    
-    // FIX: Cast 'userData' to 'any' to access 'plan'
-    const plan = ((userData as any)?.plan as PlanType) || 'free';
-    const limits = PRICING_LIMITS[plan];
-
-    const { count } = await db
-      .from('tasks')
-      .select('*', { count: 'exact', head: true })
-      .eq('project_id', data.project_id);
-
-    const currentCount = count || 0;
-
-    if (currentCount >= limits.maxTasks) {
-       throw new Error(`Task limit reached for this project. The owner's ${plan} plan allows ${limits.maxTasks} tasks.`);
+    // Check plan limits
+    const limitCheck = await SubscriptionService.checkLimit(companyId, 'task');
+    if (!limitCheck.allowed) {
+      throw new Error(limitCheck.message || 'Plan limit reached');
     }
 
     const { data: task, error } = await (db.from('tasks') as any)

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { AuthController } from './auth.controller';
 import { validate } from '../../middleware/validation.middleware';
 import { authenticate } from '../../middleware/auth.middleware';
+import { CompanyController } from '../companies/companies.controller';
 import {
   registerSchema,
   loginSchema,
@@ -15,6 +16,7 @@ import {
 
 const router = Router();
 const authController = new AuthController();
+const companyController = new CompanyController();
 
 /**
  * @route   POST /api/v1/auth/register
@@ -31,15 +33,45 @@ router.post('/register', validate(registerSchema), authController.register);
 router.post('/login', validate(loginSchema), authController.login);
 
 /**
+ * @route   GET /api/v1/auth/google
+ * @desc    Initiate Google OAuth flow (redirects to Google)
+ * @access  Public
+ * @query   companyName (optional) - Company name for new signups
+ */
+router.get('/google', authController.initiateGoogleAuth);
+
+/**
+ * @route   GET /api/v1/auth/google/callback
+ * @desc    Google OAuth callback (handles redirect from Google)
+ * @access  Public
+ */
+router.get('/google/callback', authController.googleCallback);
+
+/**
  * @route   POST /api/v1/auth/google
- * @desc    Login or Register with Google (Syncs Supabase user to your DB)
+ * @desc    Login or Register with Google using accessToken (legacy/direct token)
  * @access  Public
  */
 router.post('/google', validate(googleLoginSchema), authController.googleLogin);
 
 /**
+ * @route   GET /api/v1/auth/github
+ * @desc    Initiate GitHub OAuth flow (redirects to GitHub)
+ * @access  Public
+ * @query   companyName (optional) - Company name for new signups
+ */
+router.get('/github', authController.initiateGitHubAuth);
+
+/**
+ * @route   GET /api/v1/auth/github/callback
+ * @desc    GitHub OAuth callback (handles redirect from GitHub)
+ * @access  Public
+ */
+router.get('/github/callback', authController.githubCallback);
+
+/**
  * @route   POST /api/v1/auth/github
- * @desc    Login or Register with GitHub
+ * @desc    Login or Register with GitHub using accessToken (legacy/direct token)
  * @access  Public
  */
 router.post('/github', authController.githubLogin);
@@ -103,5 +135,19 @@ router.post('/2fa/enable', authenticate, validate(verify2FASchema), authControll
  * @access  Public (Because user doesn't have a token yet)
  */
 router.post('/2fa/verify', validate(login2FASchema), authController.verify2FALogin);
+
+/**
+ * @route   GET /api/v1/auth/companies
+ * @desc    Get user's companies
+ * @access  Private
+ */
+router.get('/companies', authenticate, companyController.getMyCompanies);
+
+/**
+ * @route   POST /api/v1/auth/switch-company
+ * @desc    Switch active company/workspace
+ * @access  Private
+ */
+router.post('/switch-company', authenticate, companyController.switchCompany);
 
 export default router;

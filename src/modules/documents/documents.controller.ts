@@ -5,7 +5,13 @@ import { ResponseHandler } from '../../utils/response';
 export const saveDocument = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
-    const doc = await DocumentService.saveDocumentMetadata(req.body, userId);
+    const companyId = req.user!.companyId || req.companyId;
+    
+    if (!companyId) {
+      return ResponseHandler.error(res, 'Company context required', 400);
+    }
+
+    const doc = await DocumentService.saveDocumentMetadata(req.body, userId, companyId);
     return ResponseHandler.created(res, doc);
   } catch (error) { next(error); }
 };
